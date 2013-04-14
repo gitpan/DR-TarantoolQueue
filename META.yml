@@ -1,6 +1,6 @@
 --- #YAML:1.0
 name:               DR-TarantoolQueue
-version:            0.10
+version:            0.11
 abstract:           client for tarantool's queue
 author:
     - Dmitry E. Oboukhov <unera@debian.org>

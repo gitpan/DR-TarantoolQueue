@@ -7,7 +7,7 @@ use open qw(:std :utf8);
 use lib qw(lib ../lib);
 
 use Test::More;
-use constant PLAN => 60;
+use constant PLAN => 77;
 
 BEGIN {
     system 'which tarantool_box >/dev/null 2>&1';
@@ -82,6 +82,7 @@ for ('put', 'urgent') {
     my $task3 = $q->$_(data => [ 3, 4, 'привет' ]);
     like $task3->id, qr[^[0-9a-fA-F]{32}$], 'task3.id';
     is_deeply $task3->data, [ 3, 4, 'привет' ], "$_(data => arrayref)";
+    
 }
 
 
@@ -92,10 +93,14 @@ isa_ok $task2_t => 'DR::TarantoolQueue::Task';
 my $task3_t = $q->take;
 isa_ok $task3_t => 'DR::TarantoolQueue::Task';
 
+
 isnt $task1_t->id, $task2_t->id, "task1 and task2 aren't the same";
 isnt $task1_t->id, $task3_t->id, "task1 and task3 aren't the same";
 
+
+is $task1_t->status, 'taken', 'task is taken';
 isa_ok $task1_t->ack => 'DR::TarantoolQueue::Task', 'task1.ack';
+is $task1_t->status, 'ack(removed)', 'task is ack';
 isa_ok $q->ack(id => $task2_t->id), 'DR::TarantoolQueue::Task', 'task2.ack';
 
 my $meta = $task3_t->get_meta;
@@ -131,6 +136,10 @@ isa_ok $task3 => 'DR::TarantoolQueue::Task';
 
 $meta = $task2->get_meta;
 
+is $task1->status, 'taken', 'task1 is taken';
+is $task2->status, 'taken', 'task2 is taken';
+is $task3->status, 'taken', 'task3 is taken';
+
 $task1_t = $task1->release(delay => 10);
 isa_ok $task1_t => 'DR::TarantoolQueue::Task';
 $task2_t = $task2->release(delay => 20, ttl => 30);
@@ -139,8 +148,11 @@ $task3_t = $task3->release;
 isa_ok $task1_t => 'DR::TarantoolQueue::Task';
 
 is $task1_t->status, 'delayed', 'task1 released as delayed';
+is $task1->status, 'delayed', 'task1 released as delayed';
 is $task2_t->status, 'delayed', 'task2 released as delayed';
+is $task2->status, 'delayed', 'task2 released as delayed';
 is $task3_t->status, 'ready', 'task3 released as ready';
+is $task3->status, 'ready', 'task3 released as ready';
 
 cmp_ok $task2->get_meta->{ttl}, '<', $meta->{ttl}, 'release updated ttl';
 cmp_ok $task2->get_meta->{ttl}, '>=', (30+20) * 1_000_000,
@@ -151,10 +163,32 @@ cmp_ok $task2->get_meta->{ttl}, '<', (30+30) * 1_000_000,
 
 $task1 = $q->take;
 isa_ok $task1 => 'DR::TarantoolQueue::Task';
-$task1_t = $task1->done(data => 'abc');
+is $task1->status, 'taken', 'task1 is taken';
+$task1_t = $task1->done(data => {'превед', 'медвед'});
+is $task1->status, 'done', 'task1 is done';
+is_deeply $task1->data, { 'превед', 'медвед' }, 'task1 is done';
 isa_ok $task1_t => 'DR::TarantoolQueue::Task';
 is $task1_t->status, 'done', 'task is done';
-is $task1_t->data, 'abc', 'task.data';
+is_deeply $task1_t->data, { 'превед', 'медвед' }, 'task.data';
+
+
+my $task4 = $q->put(tube    => 'utftube', data    => [ 3, 4, 'привет' ]);
+like $task4->id, qr[^[0-9a-fA-F]{32}$], 'task3.id';
+is_deeply $task4->data, [ 3, 4, 'привет' ],
+    "put(data => arrayref)";
+
+my $task5 =
+    $q->urgent(tube => 'utftube', data => [ 3, 4, encode utf8 => 'медвед' ]);
+like $task5->id, qr[^[0-9a-fA-F]{32}$], 'task3.id';
+is_deeply $task5->data, [ 3, 4, encode utf8 => 'медвед' ],
+    "urgent(data => arrayref)";
+
+my $task5_t = $q->take(tube => 'utftube');
+my $task4_t = $q->take(tube => 'utftube');
+
+is_deeply $task4->data, $task4_t->data, 'Task and decoded utf data';
+is_deeply $task5->data, $task5_t->data, 'Task and encoded utf data';
+
 
 END {
     note $t->log if $ENV{DEBUG};
